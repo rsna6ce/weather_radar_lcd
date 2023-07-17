@@ -24,6 +24,8 @@ from selenium.webdriver.chrome import service as fs
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import WebDriverException
 
+import socket
+
 CS_PIN    = DigitalInOut(D8)
 LED_PIN   = DigitalInOut(D18)
 RESET_PIN = DigitalInOut(D23)
@@ -35,6 +37,9 @@ SWITCH_PIN.direction = Direction.INPUT
 
 LED_OFF_MINUTE=30
 CLEANUP_MINUTE=10
+POWEROFF_SEC=5
+
+UDP_SHUTDOWN_SH_PORT=50001
 
 spi = SPI(clock=SCK, MOSI=MOSI, MISO=MISO)
 display = ILI9341(
@@ -52,6 +57,7 @@ URL_HP = 'https://tenki.jp/radar/3/15/'
 URL_IMG = 'https://imageflux.tenki.jp/large/static-images/radar/{0:04}/{1:02}/{2:02}/{3:02}/{4:02}/00/pref-15-large.jpg'
 IN_PREPARATION_PNG = 'img/in_preparation.png'
 ERROR_PNG = 'img/error.png'
+SLEEP_PNG = 'img/sleep.png'
 CHROMEDRIVER = "/usr/lib/chromium-browser/chromedriver"
 CHROME_SERVICE = fs.Service(executable_path=CHROMEDRIVER)
 
@@ -193,25 +199,41 @@ def main():
 
     led_off_time = datetime.datetime.now() + datetime.timedelta(minutes=LED_OFF_MINUTE)
     cleanup_time = datetime.datetime.now() + datetime.timedelta(minutes=CLEANUP_MINUTE)
+    poweroff_time = datetime.datetime.now() + datetime.timedelta(seconds=POWEROFF_SEC)
     latest_filename_prev = ''
     switch_value_prev = False
     while True:
+        # 10sec touch switch to shutdown pc
+        if SWITCH_PIN.value:
+            if poweroff_time < datetime.datetime.now():
+                print("shutdown ...")
+                display_img(SLEEP_PNG)
+                udp_shutdown_sh_address = ('127.0.0.1', UDP_SHUTDOWN_SH_PORT)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                send_len = sock.sendto('shutdown now'.encode('utf-8'), udp_shutdown_sh_address)
+                time.sleep(10)
+        else:
+            poweroff_time = datetime.datetime.now() + datetime.timedelta(seconds=POWEROFF_SEC)
+        # 1shot touch switch to display radar
         if switch_value_prev != SWITCH_PIN.value:
             switch_value_prev = SWITCH_PIN.value
-            if SWITCH_PIN.value:
+            if not SWITCH_PIN.value:
                 LED_PIN.value = True
                 display_radar_images()
                 led_off_time = datetime.datetime.now() + datetime.timedelta(minutes=LED_OFF_MINUTE)
-        time.sleep(0.1)
+        # auto led off timer
         if led_off_time < datetime.datetime.now():
             LED_PIN.value = False
+        # auto cleanup image timer
         if cleanup_time < datetime.datetime.now():
             cleanup_unused_images()
             cleanup_time = datetime.datetime.now() + datetime.timedelta(minutes=CLEANUP_MINUTE)
         latest_filename = get_latest_filename()
+        # auto display latest image
         if latest_filename_prev != latest_filename:
             latest_filename_prev = latest_filename
             display_radar_images(latest_only = True)
+        time.sleep(0.1)
 
 if __name__ == '__main__':
     sys.exit(main())
