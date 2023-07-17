@@ -211,7 +211,7 @@ def main():
                 udp_shutdown_sh_address = ('127.0.0.1', UDP_SHUTDOWN_SH_PORT)
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 send_len = sock.sendto('shutdown now'.encode('utf-8'), udp_shutdown_sh_address)
-                time.sleep(10)
+                time.sleep(30)
         else:
             poweroff_time = datetime.datetime.now() + datetime.timedelta(seconds=POWEROFF_SEC)
         # 1shot touch switch to display radar
