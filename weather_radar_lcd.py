@@ -146,7 +146,7 @@ def download_radar_images():
         elem_hour   = int(split_srcset[9])
         elem_minute = int(split_srcset[10])
         dt_latest = datetime.datetime(elem_year , elem_month , elem_day , elem_hour , elem_minute , 0)
-        logger_write('dt_latest: {0:04}{1:02}{2:02}_{3:02}{4:02}00'.format(
+        logger_write('dt_latest: {0:04}{1:02}{2:02}_{3:02}{4:02}'.format(
             dt_latest.year, dt_latest.month, dt_latest.day, dt_latest.hour, dt_latest.minute))
 
         temp_filenames = []
