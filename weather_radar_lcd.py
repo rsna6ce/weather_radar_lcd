@@ -132,6 +132,7 @@ def download_radar_images():
     browser = webdriver.Chrome(service=CHROME_SERVICE, options=options)
     try:
         logger_write("http get started ...")
+        browser.set_page_load_timeout(120)
         browser.get(URL_HP)
         logger_write("http get finished")
         soup = BeautifulSoup(str(browser.page_source),  'html.parser')
