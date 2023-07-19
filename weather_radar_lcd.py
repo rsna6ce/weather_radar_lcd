@@ -88,6 +88,29 @@ class DownloaderThread(threading.Thread):
             if self.stop_event.is_set():
                 break
 
+def logger_write(msg):
+    dt_now = datetime.datetime.now()
+    filename = 'log/{0:04}{1:02}{2:02}.log'.format(dt_now.year, dt_now.month, dt_now.day)
+    timestamp = '{0:02}:{1:02}:{2:02}'.format(dt_now.hour, dt_now.minute, dt_now.second)
+    with open(filename, mode='a') as f:
+        writeline = '{} {}\n'.format(timestamp, msg)
+        f.write(writeline)
+        print(timestamp, msg)
+
+def logger_cleanup(past_days=7):
+    dt_now = datetime.datetime.now()
+    white_list = []
+    for i in range(past_days):
+        dt_past = dt_now - datetime.timedelta(days=i)
+        filename = 'log/{0:04}{1:02}{2:02}.log'.format(dt_past.year, dt_past.month, dt_past.day)
+        white_list.append(filename)
+
+    actual_filenames = sorted(glob.glob('log/*.log'))
+    for filename in actual_filenames:
+        if filename not in white_list:
+            logger_write("Creanup delete " + filename)
+            os.remove(filename)
+
 def display_img(filename, error_mark=False):
     if not (os.path.isfile(filename)):
         filename = ERROR_PNG
@@ -108,11 +131,13 @@ def download_radar_images():
     options.add_argument('--headless')
     browser = webdriver.Chrome(service=CHROME_SERVICE, options=options)
     try:
-        print(datetime.datetime.now(), "get started ...")
+        logger_write("http get started ...")
         browser.get(URL_HP)
-        print(datetime.datetime.now(), "get finished")
+        logger_write("http get finished")
         soup = BeautifulSoup(str(browser.page_source),  'html.parser')
         elem_radar_source = soup.find(id='radar-source')
+        if elem_radar_source == None:
+            logger_write("elem_radar_source is None !!!")
         elem_srcset = elem_radar_source['srcset']
         split_srcset = elem_srcset.split('/')
         elem_year   = int(split_srcset[6])
@@ -121,7 +146,8 @@ def download_radar_images():
         elem_hour   = int(split_srcset[9])
         elem_minute = int(split_srcset[10])
         dt_latest = datetime.datetime(elem_year , elem_month , elem_day , elem_hour , elem_minute , 0)
-        print('dt_latest', dt_latest)
+        logger_write('dt_latest: {0:04}{1:02}{2:02}_{3:02}{4:02}00'.format(
+            dt_latest.year, dt_latest.month, dt_latest.day, dt_latest.hour, dt_latest.minute))
 
         temp_filenames = []
         for i in range(int(60/5)):
@@ -132,7 +158,7 @@ def download_radar_images():
             temp_filenames.insert(0, filename)
             if not(os.path.isfile(filename)):
                 url = URL_IMG.format(dt_temp.year, dt_temp.month, dt_temp.day, dt_temp.hour, dt_temp.minute)
-                print('downloading ', url)
+                logger_write('downloading ' + url)
                 browser.get(url)
                 element = browser.find_element(By.TAG_NAME, "img")
                 with open(filename, 'wb') as f:
@@ -141,8 +167,10 @@ def download_radar_images():
         filenames = copy.deepcopy(temp_filenames)
         lock_filenames.release()
         status_download_error = False
+        logger_write("download_radar_images finished.")
     except Exception as e:
-        print(e)
+        logger_write("exception detecred !!!")
+        logger_write(str(e))
         if not status_sleep:
             display_img(ERROR_PNG)
         status_download_error = True
@@ -184,7 +212,7 @@ def cleanup_unused_images():
 
     for filename in actual_filenames:
         if filename not in temp_filenames:
-            print("Delete  ", filename)
+            logger_write("Creanup delete " + filename)
             os.remove(filename)
 
 def get_latest_filename():
@@ -197,6 +225,7 @@ def get_latest_filename():
 
 def main():
     global status_sleep
+    logger_write("weather_rader_lcd.py main stared.")
     display_img(IN_PREPARATION_PNG)
     LED_PIN.value = True
 
@@ -216,7 +245,7 @@ def main():
         # 10sec touch switch to shutdown pc
         if SWITCH_PIN.value:
             if poweroff_time < datetime.datetime.now():
-                print("shutdown ...")
+                logger_write("shutdown ...")
                 status_sleep=True
                 display_img(SLEEP_PNG)
                 udp_shutdown_sh_address = ('127.0.0.1', UDP_SHUTDOWN_SH_PORT)
@@ -238,6 +267,7 @@ def main():
         # auto cleanup image timer
         if cleanup_time < datetime.datetime.now():
             cleanup_unused_images()
+            logger_cleanup()
             cleanup_time = datetime.datetime.now() + datetime.timedelta(minutes=CLEANUP_MINUTE)
         latest_filename = get_latest_filename()
         # auto display latest image
