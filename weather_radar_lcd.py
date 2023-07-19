@@ -52,7 +52,6 @@ display = ILI9341(
     rotation = 90,
     baudrate=24000000)
 
-browser = None
 URL_HP = 'https://tenki.jp/radar/3/15/'
 URL_IMG = 'https://imageflux.tenki.jp/large/static-images/radar/{0:04}/{1:02}/{2:02}/{3:02}/{4:02}/00/pref-15-large.jpg'
 IN_PREPARATION_PNG = 'img/in_preparation.png'
@@ -61,6 +60,8 @@ SLEEP_PNG = 'img/sleep.png'
 CHROMEDRIVER = "/usr/lib/chromium-browser/chromedriver"
 CHROME_SERVICE = fs.Service(executable_path=CHROMEDRIVER)
 
+status_download_error = False
+status_sleep = False
 
 
 
@@ -87,17 +88,25 @@ class DownloaderThread(threading.Thread):
             if self.stop_event.is_set():
                 break
 
-def display_img(filename):
+def display_img(filename, error_mark=False):
     if not (os.path.isfile(filename)):
         filename = ERROR_PNG
     img = cv2.imread(filename, cv2.IMREAD_COLOR)
     img = cv2.resize(img, (320, 240),  interpolation = cv2.INTER_AREA)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    if error_mark:
+        cv2.rectangle(img, (0, 0), (2, 2), (255, 255, 255), thickness=-1)
     frame = Image.fromarray(img)
     display.image(frame)
 
 def download_radar_images():
     global filenames
+    global status_download_error
+    global status_sleep
+
+    options = Options()
+    options.add_argument('--headless')
+    browser = webdriver.Chrome(service=CHROME_SERVICE, options=options)
     try:
         print(datetime.datetime.now(), "get started ...")
         browser.get(URL_HP)
@@ -131,9 +140,14 @@ def download_radar_images():
         lock_filenames.acquire()
         filenames = copy.deepcopy(temp_filenames)
         lock_filenames.release()
+        status_download_error = False
     except Exception as e:
         print(e)
-        display_img(ERROR_PNG)
+        if not status_sleep:
+            display_img(ERROR_PNG)
+        status_download_error = True
+    finally:
+        browser.quit()
         return
 
 def display_radar_images(latest_only = False):
@@ -157,7 +171,7 @@ def display_radar_images(latest_only = False):
             frame = Image.fromarray(img)
             display.image(frame)
             time.sleep(0.2)
-    display_img(temp_filenames[file_count-1])
+    display_img(temp_filenames[file_count-1], error_mark=status_download_error)
 
 def cleanup_unused_images():
     global filenames
@@ -182,13 +196,9 @@ def get_latest_filename():
 
 
 def main():
-    global browser
+    global status_sleep
     display_img(IN_PREPARATION_PNG)
     LED_PIN.value = True
-
-    options = Options()
-    options.add_argument('--headless')
-    browser = webdriver.Chrome(service=CHROME_SERVICE, options=options)
 
     download_radar_images()
     display_radar_images(latest_only = True)
@@ -207,6 +217,7 @@ def main():
         if SWITCH_PIN.value:
             if poweroff_time < datetime.datetime.now():
                 print("shutdown ...")
+                status_sleep=True
                 display_img(SLEEP_PNG)
                 udp_shutdown_sh_address = ('127.0.0.1', UDP_SHUTDOWN_SH_PORT)
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
