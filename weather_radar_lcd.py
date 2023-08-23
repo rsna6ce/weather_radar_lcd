@@ -200,7 +200,10 @@ def display_radar_images(latest_only = False):
             frame = Image.fromarray(img)
             display.image(frame)
             time.sleep(0.2)
-    display_img(temp_filenames[file_count-1], error_mark=status_download_error)
+    if file_count > 0:
+        display_img(temp_filenames[file_count-1], error_mark=status_download_error)
+    else:
+        display_img(ERROR_PNG)
 
 def cleanup_unused_images():
     global filenames
