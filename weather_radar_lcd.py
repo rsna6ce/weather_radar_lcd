@@ -26,6 +26,14 @@ from selenium.common.exceptions import WebDriverException
 
 import socket
 
+#### user configurations ####
+URL_HP = 'https://tenki.jp/radar/3/15/'
+URL_IMG = 'https://imageflux.tenki.jp/large/static-images/radar/{0:04}/{1:02}/{2:02}/{3:02}/{4:02}/00/pref-15-large.jpg'
+IMAGE_CACHE_LENGTH_MINUTE = 120  # from 60 to 120 minute
+IMAGE_CACHE_INTERVAL_MINUTE = 5  # 10 or 5 minute
+LED_OFF_MINUTE=30
+####
+
 CS_PIN    = DigitalInOut(D8)
 LED_PIN   = DigitalInOut(D18)
 RESET_PIN = DigitalInOut(D23)
@@ -34,10 +42,6 @@ LED_PIN.direction = Direction.OUTPUT
 
 SWITCH_PIN = DigitalInOut(D3)
 SWITCH_PIN.direction = Direction.INPUT
-
-LED_OFF_MINUTE=30
-CLEANUP_MINUTE=10
-POWEROFF_SEC=5
 
 UDP_SHUTDOWN_SH_PORT=50001
 
@@ -52,18 +56,17 @@ display = ILI9341(
     rotation = 90,
     baudrate=24000000)
 
-URL_HP = 'https://tenki.jp/radar/3/15/'
-URL_IMG = 'https://imageflux.tenki.jp/large/static-images/radar/{0:04}/{1:02}/{2:02}/{3:02}/{4:02}/00/pref-15-large.jpg'
 IN_PREPARATION_PNG = 'img/in_preparation.png'
 ERROR_PNG = 'img/error.png'
 SLEEP_PNG = 'img/sleep.png'
 CHROMEDRIVER = "/usr/lib/chromium-browser/chromedriver"
 CHROME_SERVICE = fs.Service(executable_path=CHROMEDRIVER)
+POWEROFF_SEC=5
+CLEANUP_MINUTE=10
+DOWNLOAD_ERROR_RETRY_COUNT = 1
 
-status_download_error = False
+status_download_error_count = 0
 status_sleep = False
-
-
 
 filenames = []
 lock_filenames = threading.Lock()
@@ -122,9 +125,29 @@ def display_img(filename, error_mark=False):
     frame = Image.fromarray(img)
     display.image(frame)
 
-def download_radar_images():
+# get filenames snapshot
+def get_filenames():
+    lock_filenames.acquire()
+    temp_filenames = copy.deepcopy(filenames)
+    lock_filenames.release()
+    return temp_filenames
+
+# set filenames update
+def set_filenames(arg_filenames):
     global filenames
-    global status_download_error
+    lock_filenames.acquire()
+    filenames = copy.deepcopy(arg_filenames)
+    lock_filenames.release()
+
+def get_latest_filename():
+    lock_filenames.acquire()
+    latest_filename = filenames[-1]
+    lock_filenames.release()
+    return latest_filename
+
+
+def download_radar_images():
+    global status_download_error_count
     global status_sleep
 
     options = Options()
@@ -151,7 +174,7 @@ def download_radar_images():
             dt_latest.year, dt_latest.month, dt_latest.day, dt_latest.hour, dt_latest.minute))
 
         temp_filenames = []
-        for i in range(int(60/5)):
+        for i in range(int(IMAGE_CACHE_LENGTH_MINUTE/IMAGE_CACHE_INTERVAL_MINUTE)):
             offset_min = i * 5
             dt_temp = dt_latest - datetime.timedelta(minutes=offset_min)
             filename = "tmp/{0:04}{1:02}{2:02}_{3:02}{4:02}00.png".format(
@@ -164,26 +187,21 @@ def download_radar_images():
                 element = browser.find_element(By.TAG_NAME, "img")
                 with open(filename, 'wb') as f:
                     f.write(element.screenshot_as_png)
-        lock_filenames.acquire()
-        filenames = copy.deepcopy(temp_filenames)
-        lock_filenames.release()
-        status_download_error = False
+        set_filenames(temp_filenames)
+        status_download_error_count = 0
         logger_write("download_radar_images finished.")
     except Exception as e:
         logger_write("exception detecred !!!")
         logger_write(str(e))
-        if not status_sleep:
+        status_download_error_count += 1
+        if (not status_sleep) and (status_download_error_count>DOWNLOAD_ERROR_RETRY_COUNT):
             display_img(ERROR_PNG)
-        status_download_error = True
     finally:
         browser.quit()
         return
 
 def display_radar_images(latest_only = False):
-    global filenames
-    lock_filenames.acquire()
-    temp_filenames = copy.deepcopy(filenames)
-    lock_filenames.release()
+    temp_filenames = get_filenames()
     file_count = len(temp_filenames)
     if not latest_only:
         for i in range(file_count):
@@ -201,31 +219,18 @@ def display_radar_images(latest_only = False):
             display.image(frame)
             time.sleep(0.2)
     if file_count > 0:
-        display_img(temp_filenames[file_count-1], error_mark=status_download_error)
+        display_img(temp_filenames[file_count-1], error_mark=(status_download_error_count>0))
     else:
         display_img(ERROR_PNG)
 
 def cleanup_unused_images():
-    global filenames
-
-    lock_filenames.acquire()
-    temp_filenames = copy.deepcopy(filenames)
-    lock_filenames.release()
-
+    temp_filenames = get_filenames()
     actual_filenames = sorted(glob.glob('tmp/*.png'))
 
     for filename in actual_filenames:
         if filename not in temp_filenames:
             logger_write("Creanup delete " + filename)
             os.remove(filename)
-
-def get_latest_filename():
-    lock_filenames.acquire()
-    latest_filename = filenames[-1]
-    lock_filenames.release()
-    return latest_filename
-
-
 
 def main():
     global status_sleep
