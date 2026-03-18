@@ -157,9 +157,9 @@ def download_radar_images():
     try:
         logger_write("http get started ...")
         browser.set_page_load_timeout(120)
-        if true:
+        if True:
             browser.get(URL_HP)
-            html_page_source = str(browser.page_source
+            html_page_source = str(browser.page_source)
         else: #debug
             r = requests.get(URL_HP)
             html_page_source = r.text
