@@ -13,6 +13,7 @@ from adafruit_rgb_display.rgb import color565
 from adafruit_rgb_display.ili9341 import ILI9341
 from PIL import Image, ImageDraw
 import cv2
+import requests
 
 from bs4 import BeautifulSoup
 from urllib import request
@@ -27,7 +28,7 @@ from selenium.common.exceptions import WebDriverException
 import socket
 
 #### user configurations ####
-URL_HP = 'https://tenki.jp/radar/3/15/'
+URL_HP = 'https://tenki.jp/pollen/mesh/3/'
 URL_IMG = 'https://imageflux.tenki.jp/large/static-images/radar/{0:04}/{1:02}/{2:02}/{3:02}/{4:02}/00/pref-15-large.jpg'
 IMAGE_CACHE_LENGTH_MINUTE = 120  # from 60 to 120 minute
 IMAGE_CACHE_INTERVAL_MINUTE = 5  # 10 or 5 minute
@@ -63,7 +64,7 @@ CHROMEDRIVER = "/usr/lib/chromium-browser/chromedriver"
 CHROME_SERVICE = fs.Service(executable_path=CHROMEDRIVER)
 POWEROFF_SEC=5
 CLEANUP_MINUTE=10
-DOWNLOAD_ERROR_RETRY_COUNT = 1
+DOWNLOAD_ERROR_RETRY_COUNT = 3
 
 status_download_error_count = 0
 status_sleep = False
@@ -80,7 +81,7 @@ class DownloaderThread(threading.Thread):
         self.stop_event.set()
 
     def run(self):
-        delta_next = datetime.timedelta(seconds=90)
+        delta_next = datetime.timedelta(seconds=30*60)
         dt_next = datetime.datetime.now() + delta_next
         while True:
             dt_now = datetime.datetime.now()
@@ -156,37 +157,33 @@ def download_radar_images():
     try:
         logger_write("http get started ...")
         browser.set_page_load_timeout(120)
-        browser.get(URL_HP)
+        if true:
+            browser.get(URL_HP)
+            html_page_source = str(browser.page_source
+        else: #debug
+            r = requests.get(URL_HP)
+            html_page_source = r.text
         logger_write("http get finished")
-        soup = BeautifulSoup(str(browser.page_source),  'html.parser')
-        elem_radar_source = soup.find(id='radar-source')
+        soup = BeautifulSoup(html_page_source, 'html.parser')
+        elem_radar_source = soup.find(id='pollen_mesh_image')
         if elem_radar_source == None:
             logger_write("elem_radar_source is None !!!")
-        elem_srcset = elem_radar_source['srcset']
-        split_srcset = elem_srcset.split('/')
-        elem_year   = int(split_srcset[6])
-        elem_month  = int(split_srcset[7])
-        elem_day    = int(split_srcset[8])
-        elem_hour   = int(split_srcset[9])
-        elem_minute = int(split_srcset[10])
-        dt_latest = datetime.datetime(elem_year , elem_month , elem_day , elem_hour , elem_minute , 0)
-        logger_write('dt_latest: {0:04}{1:02}{2:02}_{3:02}{4:02}'.format(
-            dt_latest.year, dt_latest.month, dt_latest.day, dt_latest.hour, dt_latest.minute))
+        current_img_src = elem_radar_source['src']
+        print("current_img_src", current_img_src)
 
         temp_filenames = []
-        for i in range(int(IMAGE_CACHE_LENGTH_MINUTE/IMAGE_CACHE_INTERVAL_MINUTE)):
-            offset_min = i * 5
-            dt_temp = dt_latest - datetime.timedelta(minutes=offset_min)
-            filename = "tmp/{0:04}{1:02}{2:02}_{3:02}{4:02}00.png".format(
-                dt_temp.year, dt_temp.month, dt_temp.day, dt_temp.hour, dt_temp.minute)
-            temp_filenames.insert(0, filename)
-            if not(os.path.isfile(filename)):
-                url = URL_IMG.format(dt_temp.year, dt_temp.month, dt_temp.day, dt_temp.hour, dt_temp.minute)
-                logger_write('downloading ' + url)
-                browser.get(url)
-                element = browser.find_element(By.TAG_NAME, "img")
-                with open(filename, 'wb') as f:
-                    f.write(element.screenshot_as_png)
+        dt_now = datetime.datetime.now()
+        url = current_img_src
+        url_splited = current_img_src.split("/")
+        filename = "tmp/{}{}.png".format(dt_now.strftime("%Y%m%d"),url_splited[6])
+        temp_filenames.append(filename)
+        if os.path.isfile(filename):
+            os.remove(filename)
+        logger_write('downloading ' + url)
+        browser.get(url)
+        element = browser.find_element(By.TAG_NAME, "img")
+        with open(filename, 'wb') as f:
+            f.write(element.screenshot_as_png)
         set_filenames(temp_filenames)
         status_download_error_count = 0
         logger_write("download_radar_images finished.")
@@ -213,13 +210,13 @@ def display_radar_images(latest_only = False):
             bar_height = 5
             bar_width = 280
             cv2.rectangle(img, (0, 239-bar_height), (bar_width, 239), (0, 0, 0), thickness=-1)
-            cv2.rectangle(img, (0, 239-bar_height), (int(bar_width*(i+1)/file_count), 239), (255, 255, 255), thickness=-1)
+            cv2.rectangle(img, (0, 239-bar_height), (int(bar_width*(i+1)/file_count), 239), (0, 0, 255), thickness=-1)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             frame = Image.fromarray(img)
             display.image(frame)
             time.sleep(0.2)
     if file_count > 0:
-        display_img(temp_filenames[file_count-1], error_mark=(status_download_error_count>0))
+        display_img(temp_filenames[0], error_mark=(status_download_error_count>0))
     else:
         display_img(ERROR_PNG)
 
